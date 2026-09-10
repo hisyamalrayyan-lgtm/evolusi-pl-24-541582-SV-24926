@@ -15,7 +15,7 @@
     <p>Kelas: A1</p>
 
     <p>
-        anjay
+        anjay wow 2
     </p>
 </body>
 </html>
