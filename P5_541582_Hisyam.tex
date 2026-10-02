@@ -1,0 +1,301 @@
+\documentclass[a4paper,oneside,11pt]{book}
+\usepackage{graphicx}
+\usepackage{titling}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{indentfirst}
+\usepackage{longtable}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[hyphens]{url}
+\usepackage{hyperref}
+\def\UrlBreaks{\do\/\do-}
+
+\geometry{left=3cm, right=2.5cm, top=3cm, bottom=3cm}
+\emergencystretch=5em
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.95}
+\definecolor{codeblue}{rgb}{0.16,0.32,0.75}
+
+\lstdefinelanguage{dockerfile}{
+    keywords={FROM,RUN,COPY,WORKDIR,EXPOSE,CMD,ARG,ENV,ADD,ENTRYPOINT,VOLUME,USER,LABEL},
+    keywordstyle=\color{codeblue}\bfseries,
+    basicstyle=\ttfamily\footnotesize,
+    sensitive=true,
+    comment=[l]{\#},
+    commentstyle=\color{codegray}\itshape,
+    stringstyle=\color{codepurple},
+}
+
+\lstdefinestyle{codestyle}{
+    backgroundcolor=\color{backcolour},
+    basicstyle=\ttfamily\footnotesize,
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numberstyle=\tiny\color{codegray},
+    numbers=left,
+    numbersep=6pt,
+    showspaces=false,
+    showstringspaces=false,
+    breaklines=true,
+    tabsize=2,
+    frame=single,
+    rulecolor=\color{gray},
+    captionpos=b,
+}
+\lstset{style=codestyle}
+
+\title{Laporan Praktikum \\ Konstruksi dan Evolusi Perangkat Lunak\\
+Pertemuan 5 \\ Containerisasi Aplikasi Laravel dengan Docker}
+\author{Hisyam Al Rayyan / 24/541582/SV/24926}
+\date{\today}
+
+\begin{document}
+
+\begin{titlingpage}
+\begin{center}
+\vspace{4cm}
+\begin{huge}
+\textbf{\thetitle} \\
+\end{huge}
+\vspace{2cm}
+\includegraphics[height=8cm]{images/logo_ugm.png}\\
+\vspace{4cm}
+{\Large
+\begin{tabular}{rl}
+Nama            & : Hisyam Al Rayyan \\
+NIM             & : 24/541582/SV/24926 \\
+Kelas           & : A2 \\
+Dosen Pengampu  & : Galih Malela Damaraji \\
+\end{tabular}
+}
+\vspace{2cm}
+\end{center}
+\end{titlingpage}
+
+\tableofcontents
+
+%=== BAB 1 ===
+\chapter{Pendahuluan}
+
+\section{Tujuan Praktikum}
+\begin{enumerate}
+    \item Menulis Dockerfile untuk aplikasi Laravel dengan memperhatikan urutan instruksi agar cache Docker bekerja optimal.
+    \item Membuat \texttt{.dockerignore} untuk mengecualikan file yang tidak diperlukan dalam image.
+    \item Membuktikan efektivitas Docker layer cache melalui tiga kali build dengan kondisi berbeda.
+    \item Menjalankan container dan memverifikasi aplikasi dapat diakses dari browser.
+    \item Memastikan endpoint API dapat dipanggil dari luar container menggunakan Postman.
+\end{enumerate}
+
+\section{Alat dan Bahan}
+\begin{enumerate}
+    \item Laptop dengan sistem operasi Windows.
+    \item Docker Desktop for Windows.
+    \item PHP 8.4 dan Composer.
+    \item Framework Laravel 13.
+    \item Postman untuk pengujian API.
+    \item Repository GitHub \texttt{evolusi-pl-24-541582-SV-24926}.
+\end{enumerate}
+
+%=== BAB 2 ===
+\chapter{Hasil dan Pembahasan}
+
+\section{Dockerfile Aplikasi Laravel}
+
+Dockerfile ditulis dengan memperhatikan urutan instruksi agar Docker layer cache dapat bekerja secara efektif. \texttt{composer.json} dan \texttt{composer.lock} disalin dan dependensi dipasang \textbf{sebelum} kode aplikasi disalin. Dengan cara ini, layer instalasi dependensi hanya dijalankan ulang ketika file \texttt{composer.lock} berubah.
+
+\begin{lstlisting}[language=dockerfile, caption={Dockerfile aplikasi Laravel}]
+FROM php:8.4-cli
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    libpng-dev \
+    libonig-dev \
+    libxml2-dev \
+    zip \
+    unzip \
+    sqlite3 \
+    libsqlite3-dev \
+    && docker-php-ext-install pdo pdo_sqlite mbstring exif pcntl bcmath \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www
+
+# === STEP PENTING UNTUK CACHE ===
+# Salin composer files DAHULU sebelum kode aplikasi
+COPY composer.json composer.lock ./
+
+# Install dependencies (layer ini hanya rebuild jika composer.lock berubah)
+RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
+
+# Baru salin seluruh kode aplikasi
+COPY . .
+
+# Setup environment
+RUN cp .env.example .env \
+    && php artisan key:generate \
+    && touch database/database.sqlite \
+    && php artisan migrate --force \
+    && chmod -R 777 storage bootstrap/cache
+
+EXPOSE 8000
+
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+\end{lstlisting}
+
+% Screenshot 1: Dockerfile
+%\begin{figure}[H]
+%    \centering
+%    \includegraphics[width=0.8\textwidth]{5-1.png}
+%    \caption{Isi Dockerfile aplikasi Laravel}
+%    \label{fig:5-1}
+%\end{figure}
+
+\section{File .dockerignore}
+
+File \texttt{.dockerignore} dibuat untuk mengecualikan file dan direktori yang tidak diperlukan dalam image Docker. Hal ini mengurangi ukuran image dan mempercepat proses build.
+
+\begin{lstlisting}[caption={Isi file .dockerignore}]
+node_modules
+vendor
+.git
+.env
+.env.*
+!.env.example
+*.log
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+docker-compose.yml
+Dockerfile
+.dockerignore
+tests/
+*.md
+\end{lstlisting}
+
+% Screenshot 2: .dockerignore
+%\begin{figure}[H]
+%    \centering
+%    \includegraphics[width=0.8\textwidth]{5-2.png}
+%    \caption{Isi file .dockerignore}
+%    \label{fig:5-2}
+%\end{figure}
+
+\section{Pembuktian Docker Layer Cache}
+
+Docker layer cache dibuktikan melalui tiga kali build:
+
+\begin{enumerate}
+    \item \textbf{Build pertama}: Semua layer dibangun dari awal. Durasi paling lama karena tidak ada cache yang tersedia.
+    \item \textbf{Build kedua}: Tidak ada perubahan sama sekali. Seluruh layer menggunakan cache sehingga build selesai dalam waktu sangat singkat.
+    \item \textbf{Build ketiga}: Satu baris kode aplikasi diubah (tanpa mengubah \texttt{composer.lock}). Layer instalasi dependensi menggunakan cache, hanya layer \texttt{COPY . .} dan seterusnya yang dibangun ulang. Jauh lebih cepat dari build pertama.
+\end{enumerate}
+
+Perintah yang dijalankan:
+
+\begin{lstlisting}[language=bash, caption={Perintah tiga kali build Docker}]
+# Build pertama (semua dari awal)
+docker build -t evolusi-app .
+
+# Build kedua (tanpa perubahan - semua cached)
+docker build -t evolusi-app .
+
+# Ubah satu baris kode, lalu build ketiga
+docker build -t evolusi-app .
+\end{lstlisting}
+
+% Screenshot 3: Build pertama (lama)
+%\begin{figure}[H]
+%    \centering
+%    \includegraphics[width=0.8\textwidth]{5-3.png}
+%    \caption{Build pertama: semua layer dibangun dari awal}
+%    \label{fig:5-3}
+%\end{figure}
+
+% Screenshot 4: Build kedua (instant cached)
+%\begin{figure}[H]
+%    \centering
+%    \includegraphics[width=0.8\textwidth]{5-4.png}
+%    \caption{Build kedua: seluruh layer menggunakan cache}
+%    \label{fig:5-4}
+%\end{figure}
+
+% Screenshot 5: Build ketiga (sebagian cached)
+%\begin{figure}[H]
+%    \centering
+%    \includegraphics[width=0.8\textwidth]{5-5.png}
+%    \caption{Build ketiga: layer dependensi cached, hanya kode yang dibangun ulang}
+%    \label{fig:5-5}
+%\end{figure}
+
+\section{Menjalankan Container}
+
+Container dijalankan dengan perintah berikut:
+
+\begin{lstlisting}[language=bash, caption={Menjalankan container Docker}]
+docker run -d -p 8000:8000 --name evolusi-container evolusi-app
+docker ps
+\end{lstlisting}
+
+Aplikasi kemudian dapat diakses melalui browser pada alamat \texttt{http://localhost:8000}.
+
+% Screenshot 6: Browser + docker ps
+%\begin{figure}[H]
+%    \centering
+%    \includegraphics[width=0.8\textwidth]{5-6.png}
+%    \caption{Aplikasi berjalan di browser dan output docker ps}
+%    \label{fig:5-6}
+%\end{figure}
+
+\section{Pengujian API dengan Postman}
+
+Endpoint \texttt{GET /api/tugas} diuji menggunakan Postman untuk memastikan API dapat dipanggil dari luar container. Pengujian memperlihatkan URL yang dipanggil, status HTTP 200, dan isi respons JSON.
+
+\begin{lstlisting}[caption={Endpoint yang diuji dengan Postman}]
+GET http://localhost:8000/api/tugas
+\end{lstlisting}
+
+% Screenshot 7: Postman request + response
+%\begin{figure}[H]
+%    \centering
+%    \includegraphics[width=0.8\textwidth]{5-7.png}
+%    \caption{Postman: request GET /api/tugas dengan status 200 dan respons JSON}
+%    \label{fig:5-7}
+%\end{figure}
+
+%=== BAB 3 ===
+\chapter{Kesimpulan}
+
+Berdasarkan praktikum yang telah dilakukan, dapat disimpulkan beberapa hal berikut:
+\begin{enumerate}
+    \item Dockerfile berhasil ditulis dengan urutan instruksi yang optimal: \texttt{composer.json} dan \texttt{composer.lock} disalin dan dependensi dipasang sebelum kode aplikasi, sehingga Docker layer cache dapat bekerja secara efektif.
+    \item File \texttt{.dockerignore} berhasil dibuat untuk mengecualikan direktori \texttt{node\_modules}, \texttt{vendor}, \texttt{.git}, dan \texttt{.env}, mengurangi ukuran build context.
+    \item Efektivitas Docker layer cache terbukti melalui tiga kali build: build ketiga jauh lebih cepat dari build pertama karena layer instalasi dependensi menggunakan cache yang tersimpan.
+    \item Container berhasil dijalankan dan aplikasi Laravel dapat diakses dari browser melalui \texttt{http://localhost:8000}.
+    \item Endpoint API \texttt{GET /api/tugas} berhasil diuji dengan Postman dan mengembalikan status HTTP 200 beserta data JSON yang benar.
+\end{enumerate}
+
+\clearpage
+
+\begin{thebibliography}{9}
+\bibitem{dockerDoc}
+Docker. (2026). \textit{Dockerfile Reference}. Diakses dari \url{https://docs.docker.com/reference/dockerfile/}.
+\bibitem{dockerBestPractices}
+Docker. (2026). \textit{Best practices for writing Dockerfiles}. Diakses dari \url{https://docs.docker.com/develop/develop-images/dockerfile_best-practices/}.
+\bibitem{laravelDoc}
+Laravel. (2026). \textit{Laravel Documentation}. Diakses dari \url{https://laravel.com/docs}.
+\end{thebibliography}
+
+\end{document}
