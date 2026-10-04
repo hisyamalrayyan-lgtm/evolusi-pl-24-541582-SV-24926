@@ -3,7 +3,7 @@ import { formatStatus, formatDate } from '../utils/tugas'
 
 describe('formatStatus', () => {
   it('mengembalikan "Selesai" untuk status selesai', () => {
-    expect(formatStatus('selesai')).toBe('Selesai')
+    expect(formatStatus('selesai')).toBe('SALAH')
   })
 
   it('mengembalikan "Pending" untuk status pending', () => {
