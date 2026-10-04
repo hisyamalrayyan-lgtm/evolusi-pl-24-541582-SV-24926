@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatStatus, formatDate } from '../../utils/tugas'
+import { formatStatus, formatDate } from '../utils/tugas'
 
 describe('formatStatus', () => {
   it('mengembalikan "Selesai" untuk status selesai', () => {
