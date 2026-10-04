@@ -17,7 +17,7 @@ class TugasTest extends TestCase
     {
         $response = $this->getJson('/api/tugas');
 
-        $response->assertStatus(999) // SENGAJA SALAH;
+        $response->assertStatus(200);
     }
 
     /**
@@ -52,7 +52,7 @@ class TugasTest extends TestCase
 
         $response = $this->getJson("/api/tugas/{$tugas->id}");
 
-        $response->assertStatus(999) // SENGAJA SALAH
+        $response->assertStatus(200)
                  ->assertJsonFragment([
                      'judul'  => 'Tugas Detail',
                      'status' => 'selesai',
