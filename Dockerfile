@@ -1,46 +1,51 @@
+# syntax=docker/dockerfile:1
 FROM php:8.4-cli
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    zip \
-    unzip \
-    sqlite3 \
-    libsqlite3-dev \
-    && docker-php-ext-install pdo pdo_sqlite mbstring exif pcntl bcmath \
+# ------------------------------------------------------------
+# 1. Paket sistem + ekstensi PHP (jarang berubah -> cache awet)
+#    pdo_sqlite & mbstring sudah bawaan image php resmi.
+# ------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        unzip \
+        libzip-dev \
+    && docker-php-ext-install zip bcmath pcntl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+# Composer diambil dari image resmi
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www
 
-# ============================================================
-# PENTING: Salin composer files TERLEBIH DAHULU sebelum kode.
-# Layer ini hanya rebuild jika composer.json atau composer.lock berubah.
-# ============================================================
+# ------------------------------------------------------------
+# 2. PENTING UNTUK CACHE:
+#    composer.json + composer.lock disalin dan dipasang
+#    SEBELUM kode aplikasi. Layer ini hanya dibangun ulang
+#    jika salah satu dari dua file tersebut berubah.
+# ------------------------------------------------------------
 COPY composer.json composer.lock ./
 
 RUN composer install \
-    --no-dev \
-    --optimize-autoloader \
-    --no-scripts \
-    --no-interaction
+        --no-dev \
+        --no-scripts \
+        --no-autoloader \
+        --no-interaction \
+        --prefer-dist
 
-# Baru salin seluruh kode aplikasi
+# ------------------------------------------------------------
+# 3. Baru salin seluruh kode aplikasi.
+#    Perubahan kode hanya membatalkan cache mulai dari sini.
+# ------------------------------------------------------------
 COPY . .
 
-# Setup Laravel
-RUN cp .env.example .env \
-    && php artisan key:generate \
+RUN composer dump-autoload --optimize --no-dev \
+    && cp .env.example .env \
+    && php artisan key:generate --force \
     && touch database/database.sqlite \
     && php artisan migrate --force \
-    && chmod -R 775 storage bootstrap/cache
+    && php artisan db:seed --class=TugasSeeder --force \
+    && chmod -R 775 storage bootstrap/cache database
 
 EXPOSE 8000
 

@@ -1,18 +1,31 @@
+# Wajib (sesuai tugas)
 node_modules
 vendor
 .git
 .env
+
+# Variasi file env lain, tapi tetap sertakan contohnya
 .env.*
 !.env.example
-*.log
+
+# Frontend Vue tidak dibutuhkan image Laravel
+frontend
+
+# Artefak & cache lokal
+database/database.sqlite
 storage/logs/*
-storage/framework/cache/*
+storage/framework/cache/data/*
 storage/framework/sessions/*
 storage/framework/views/*
-docker-compose.yml
-.dockerignore
-tests/
+bootstrap/cache/*.php
+public/build
+public/hot
+*.log
+
+# File yang tidak perlu ada di image
+.github
+tests
+*.tex
 *.md
-frontend/node_modules
-frontend/dist
-frontend/.env
+Dockerfile
+.dockerignore
