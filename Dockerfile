@@ -1,31 +1,25 @@
 # syntax=docker/dockerfile:1
-FROM php:8.4-cli
 
-# ------------------------------------------------------------
-# 1. Paket sistem + ekstensi PHP (jarang berubah -> cache awet)
-#    pdo_sqlite & mbstring sudah bawaan image php resmi.
-# ------------------------------------------------------------
+# ================================================================
+# STAGE 1 — builder
+# Image besar berisi Composer dan semua dev tools.
+# Layer ini TIDAK masuk ke image akhir produksi.
+# ================================================================
+FROM php:8.4-cli AS builder
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         unzip \
         libzip-dev \
     && docker-php-ext-install zip bcmath pcntl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Composer diambil dari image resmi
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2.8 /usr/bin/composer /usr/bin/composer
 
-WORKDIR /var/www
+WORKDIR /app
 
-# ------------------------------------------------------------
-# 2. PENTING UNTUK CACHE:
-#    composer.json + composer.lock disalin dan dipasang
-#    SEBELUM kode aplikasi. Layer ini hanya dibangun ulang
-#    jika salah satu dari dua file tersebut berubah.
-# ------------------------------------------------------------
+# Salin manifest DAHULU supaya layer Composer di-cache
 COPY composer.json composer.lock ./
-
 RUN composer install \
         --no-dev \
         --no-scripts \
@@ -33,20 +27,50 @@ RUN composer install \
         --no-interaction \
         --prefer-dist
 
-# ------------------------------------------------------------
-# 3. Baru salin seluruh kode aplikasi.
-#    Perubahan kode hanya membatalkan cache mulai dari sini.
-# ------------------------------------------------------------
+# Baru salin kode aplikasi, lalu optimasi autoloader
 COPY . .
+RUN composer dump-autoload --optimize --no-dev
 
-RUN composer dump-autoload --optimize --no-dev \
-    && cp .env.example .env \
+# ================================================================
+# STAGE 2 — runtime (image final yang kecil)
+# Hanya berisi PHP minimal + kode aplikasi + vendor yang sudah siap.
+# ================================================================
+FROM php:8.4-cli-alpine AS runtime
+
+# Ekstensi yang dibutuhkan Laravel saat melayani request
+RUN apk add --no-cache \
+        libzip \
+        curl \
+    && docker-php-ext-install bcmath pcntl \
+    && apk add --no-cache libzip-dev \
+    && docker-php-ext-install zip \
+    && apk del libzip-dev \
+    && rm -rf /tmp/* /var/cache/apk/*
+
+WORKDIR /app
+
+# Salin HANYA hasil build dari stage builder (bukan semua layer builder)
+COPY --from=builder /app .
+
+# Setup environment Laravel (sqlite sudah ter-bundle di PHP Alpine)
+RUN cp .env.example .env \
     && php artisan key:generate --force \
     && touch database/database.sqlite \
     && php artisan migrate --force \
     && php artisan db:seed --class=TugasSeeder --force \
+    && php artisan config:cache \
+    && php artisan route:cache \
     && chmod -R 775 storage bootstrap/cache database
 
+# Jalankan sebagai user non-root (syarat tugas)
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+    && chown -R appuser:appgroup /app
+
+USER appuser
+
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/api/tugas || exit 1
 
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
